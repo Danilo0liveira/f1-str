@@ -184,26 +184,34 @@ static void stats_task(void *arg)
     }
 }
 
+// tags for logging
 static const char *TAG = "SENSOR_TASK";
 static const char *TAG2 = "DEBUGS BUTTON";
 
+// variables to maniuplate the injection, jitter and the cheat start up flag
 int injection_value = INJECTION_STANDARD_VALUE;
 int jitter = 0;
-bool hack_start_up = true;
+bool cheat_start_up = true;
 
 static void injection_task(void *arg)
 {
+    // injection task waiting to the START_CHEAT_BUTTON
     if (xSemaphoreTake(xStartButtonPressed, portMAX_DELAY) == pdPASS) 
     {
+        // set the io of ALERT_CHEAT_ON_LED to high voltage
         gpio_set_level(ALERT_CHEAT_ON_LED, 1);
         while (true)
         {
+            // set the injection to the standard value
             injection_value = INJECTION_STANDARD_VALUE;
+            // semaphore to sync the sensor read
             if (xSemaphoreTake(xSemaphoreSensorRead, portMAX_DELAY) == pdPASS)
             {
-                if (hack_start_up){
-                    hack_start_up = false;
+                // if the first read after the button was clicked, don't cheat yet.  
+                if (cheat_start_up){
+                    cheat_start_up = false;
                 }
+                // after the second read, we sync with the sensor.
                 else{
                     injection_value = INJECTION_HACK_VALUE;
                     vTaskDelay(pdMS_TO_TICKS(SENSOR_SAMPLE_TIME-1+jitter));
@@ -214,24 +222,31 @@ static void injection_task(void *arg)
     }
 }
 
-
 static void sensor_task(void *arg)
 {
+    // running indefinitely 
     while(true)
     {
         ESP_LOGW(TAG, "sensor value:  %d", injection_value);
+
+        // set the LED io to high voltage if cheat detected
         if (injection_value > INJECTION_STANDARD_VALUE)
             gpio_set_level(ALERT_CHEAT_DETECTED_LED, 1);
+
+        // give to cheat task and set the delay sample time
         xSemaphoreGive(xSemaphoreSensorRead);
         vTaskDelay(pdMS_TO_TICKS(SENSOR_SAMPLE_TIME));
     }
 }
 
+// function to introduce the cheat task
 void isr_callback_start_cheat_pressed_button(void *arg)
 {
+    // give to sempahore of cheat task
     xSemaphoreGive(xStartButtonPressed);
 }
 
+// function to introduce jitter to the cheat task
 void isr_callback_add_jitter_pressed_button(void *arg)
 {
     jitter=10;
@@ -239,38 +254,49 @@ void isr_callback_add_jitter_pressed_button(void *arg)
 
 void app_main(void)
 {
+    // reset the LEDs pins
     gpio_reset_pin(ALERT_CHEAT_DETECTED_LED);
     gpio_reset_pin(ALERT_CHEAT_ON_LED);
     gpio_reset_pin(ALERT_SYSTEM_GOOD);
 
+    // set the direction of LEDs pins to OUTPUT
     gpio_set_direction(ALERT_CHEAT_DETECTED_LED, GPIO_MODE_OUTPUT);
     gpio_set_direction(ALERT_CHEAT_ON_LED, GPIO_MODE_OUTPUT);
     gpio_set_direction(ALERT_SYSTEM_GOOD, GPIO_MODE_OUTPUT);
-
+    
+    // set the direction of BUTTONs pins to INPUT
     gpio_set_direction(START_CHEAT_BUTTON, GPIO_MODE_INPUT);
     gpio_set_direction(FORCE_FAULT_BUTTON, GPIO_MODE_INPUT);
-
+    
+    // set the internal PULLUP resistor in the buttons pins
     gpio_set_pull_mode(START_CHEAT_BUTTON, GPIO_PULLUP_ONLY);
     gpio_set_pull_mode(FORCE_FAULT_BUTTON, GPIO_PULLUP_ONLY);
-
+    
+    // set the functions call to the NEGEDGE dectetion
     gpio_set_intr_type(START_CHEAT_BUTTON, GPIO_INTR_NEGEDGE);
     gpio_set_intr_type(FORCE_FAULT_BUTTON, GPIO_INTR_NEGEDGE);
-
+    
+    // initialize the GPIO interrupt service routine (ISR) 
     gpio_install_isr_service(0);
 
+    // add handler to START_CHEAT_BUTTON
     gpio_isr_handler_add(
         START_CHEAT_BUTTON,
         isr_callback_start_cheat_pressed_button, 
         NULL);
-
+        
+    // add handler to FORCE_FAULT_BUTTON
     gpio_isr_handler_add(
         FORCE_FAULT_BUTTON,
         isr_callback_add_jitter_pressed_button, 
         NULL);
-        
+    
+    // setup the ALERT_SYSTEM_GOOD LED to high voltage
     gpio_set_level(ALERT_SYSTEM_GOOD, 1);
-
+    
+    // semaphore to sync the read action of the sensor
     xSemaphoreSensorRead = xSemaphoreCreateBinary();
+    // semaphore to handle the start cheating interrupting
     xStartButtonPressed = xSemaphoreCreateBinary();
 
     //Allow other core to finish initialization
