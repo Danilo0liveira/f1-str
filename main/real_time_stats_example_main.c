@@ -16,6 +16,8 @@
 #include "freertos/semphr.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include "driver/gpio.h"
+
 
 #define NUM_OF_SPIN_TASKS   6
 #define SPIN_ITER           500000  //Actual CPU cycles used will depend on compiler optimization
@@ -24,11 +26,23 @@
 #define STATS_TICKS         pdMS_TO_TICKS(1000)
 #define ARRAY_SIZE_OFFSET   5   //Increase this if print_real_time_stats returns ESP_ERR_INVALID_SIZE
 
+#define INJECTION_STANDARD_VALUE 100
+#define INJECTION_HACK_VALUE 120
+#define SENSOR_SAMPLE_TIME 30
+
+#define ALERT_CHEAT_DETECTED_LED GPIO_NUM_13
+#define ALERT_SYSTEM_GOOD GPIO_NUM_12
+#define ALERT_CHEAT_ON_LED GPIO_NUM_14
+
+#define START_CHEAT_BUTTON GPIO_NUM_25
+#define FORCE_FAULT_BUTTON GPIO_NUM_27
+
 static char task_names[NUM_OF_SPIN_TASKS][configMAX_TASK_NAME_LEN];
+
 static SemaphoreHandle_t sync_spin_task;
 static SemaphoreHandle_t sync_stats_task;
-static SemaphoreHandle_t xSemaforoEvento;
-static SemaphoreHandle_t xSemaforoEvento2;
+static SemaphoreHandle_t xSemaphoreSensorRead;
+static SemaphoreHandle_t xStartButtonPressed;
 
 /**
  * @brief   Function to print the CPU usage of tasks over a given duration.
@@ -170,44 +184,84 @@ static void stats_task(void *arg)
     }
 }
 
-int injection_value = 100;
+static const char *TAG = "SENSOR_TASK";
+static const char *TAG2 = "DEBUGS BUTTON";
+
+int injection_value = INJECTION_STANDARD_VALUE;
+bool hack_start_up = true;
 
 static void injection_task(void *arg)
 {
-    while (true)
+    if (xSemaphoreTake(xStartButtonPressed, portMAX_DELAY) == pdPASS) 
     {
-        injection_value = 100;
-        if (xSemaphoreTake(xSemaforoEvento, portMAX_DELAY) == pdPASS)
+        gpio_set_level(ALERT_CHEAT_ON_LED, 1);
+        while (true)
         {
-            injection_value = 120;
-            vTaskDelay(pdMS_TO_TICKS(29));
+            injection_value = INJECTION_STANDARD_VALUE;
+            if (xSemaphoreTake(xSemaphoreSensorRead, portMAX_DELAY) == pdPASS)
+            {
+                if (hack_start_up){
+                    hack_start_up = false;
+                }
+                else{
+                    injection_value = INJECTION_HACK_VALUE;
+                    vTaskDelay(pdMS_TO_TICKS(SENSOR_SAMPLE_TIME-1));
+                }
+                ESP_LOGW(TAG2, "injection hack:  %d", injection_value);
+            }
         }
     }
 }
 
-static const char *TAG = "SENSOR_TASK";
 
 static void sensor_task(void *arg)
 {
     while(true)
     {
-        if (injection_value > 100)
-        {
-            ESP_LOGW(TAG, "EITA BIXO!!! %d", injection_value);
-        }
-        else
-        {
-            ESP_LOGW(TAG, "NORMAL BIXO!!! %d", injection_value);
-        }
-        xSemaphoreGive(xSemaforoEvento);
-        vTaskDelay(pdMS_TO_TICKS(30));
+        ESP_LOGW(TAG, "sensor value:  %d", injection_value);
+        if (injection_value > INJECTION_STANDARD_VALUE)
+            gpio_set_level(ALERT_CHEAT_DETECTED_LED, 1);
+        xSemaphoreGive(xSemaphoreSensorRead);
+        vTaskDelay(pdMS_TO_TICKS(SENSOR_SAMPLE_TIME));
     }
+}
+
+void isr_callback_start_cheat_pressed_button(void *arg)
+{
+    xSemaphoreGive(xStartButtonPressed);
 }
 
 void app_main(void)
 {
-    xSemaforoEvento = xSemaphoreCreateBinary();
-    xSemaforoEvento2 = xSemaphoreCreateBinary();
+    gpio_reset_pin(ALERT_CHEAT_DETECTED_LED);
+    gpio_reset_pin(ALERT_CHEAT_ON_LED);
+    gpio_reset_pin(ALERT_SYSTEM_GOOD);
+
+    gpio_set_direction(ALERT_CHEAT_DETECTED_LED, GPIO_MODE_OUTPUT);
+    gpio_set_direction(ALERT_CHEAT_ON_LED, GPIO_MODE_OUTPUT);
+    gpio_set_direction(ALERT_SYSTEM_GOOD, GPIO_MODE_OUTPUT);
+
+    gpio_set_direction(START_CHEAT_BUTTON, GPIO_MODE_INPUT);
+    gpio_set_direction(FORCE_FAULT_BUTTON, GPIO_MODE_INPUT);
+
+    gpio_set_pull_mode(START_CHEAT_BUTTON, GPIO_PULLUP_ONLY);
+    gpio_set_pull_mode(FORCE_FAULT_BUTTON, GPIO_PULLUP_ONLY);
+
+    gpio_set_intr_type(START_CHEAT_BUTTON, GPIO_INTR_NEGEDGE);
+    gpio_set_intr_type(FORCE_FAULT_BUTTON, GPIO_INTR_NEGEDGE);
+
+    gpio_install_isr_service(0);
+
+    gpio_isr_handler_add(
+        START_CHEAT_BUTTON,
+        isr_callback_start_cheat_pressed_button, 
+        NULL);
+
+
+    gpio_set_level(ALERT_SYSTEM_GOOD, 1);
+
+    xSemaphoreSensorRead = xSemaphoreCreateBinary();
+    xStartButtonPressed = xSemaphoreCreateBinary();
 
     //Allow other core to finish initialization
     vTaskDelay(pdMS_TO_TICKS(100));
