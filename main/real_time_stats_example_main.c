@@ -188,6 +188,7 @@ static const char *TAG = "SENSOR_TASK";
 static const char *TAG2 = "DEBUGS BUTTON";
 
 int injection_value = INJECTION_STANDARD_VALUE;
+int jitter = 0;
 bool hack_start_up = true;
 
 static void injection_task(void *arg)
@@ -205,7 +206,7 @@ static void injection_task(void *arg)
                 }
                 else{
                     injection_value = INJECTION_HACK_VALUE;
-                    vTaskDelay(pdMS_TO_TICKS(SENSOR_SAMPLE_TIME-1));
+                    vTaskDelay(pdMS_TO_TICKS(SENSOR_SAMPLE_TIME-1+jitter));
                 }
                 ESP_LOGW(TAG2, "injection hack:  %d", injection_value);
             }
@@ -229,6 +230,11 @@ static void sensor_task(void *arg)
 void isr_callback_start_cheat_pressed_button(void *arg)
 {
     xSemaphoreGive(xStartButtonPressed);
+}
+
+void isr_callback_add_jitter_pressed_button(void *arg)
+{
+    jitter=10;
 }
 
 void app_main(void)
@@ -257,7 +263,11 @@ void app_main(void)
         isr_callback_start_cheat_pressed_button, 
         NULL);
 
-
+    gpio_isr_handler_add(
+        FORCE_FAULT_BUTTON,
+        isr_callback_add_jitter_pressed_button, 
+        NULL);
+        
     gpio_set_level(ALERT_SYSTEM_GOOD, 1);
 
     xSemaphoreSensorRead = xSemaphoreCreateBinary();
