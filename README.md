@@ -57,3 +57,5 @@ O projeto utiliza algumas funções básicas do FreeRTOS para garantir a integri
 
 ---
 Link do Vídeo: 
+
+https://youtu.be/knCfdsCXC2M
