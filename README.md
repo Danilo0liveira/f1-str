@@ -56,6 +56,11 @@ O projeto utiliza algumas funções básicas do FreeRTOS para garantir a integri
 5. Se o botão no GPIO 27 for pressionado, um atraso adicional (`jitter`) é somado à tarefa de injeção, simulando uma falha de temporização.
 
 ---
+
+## Digrama de blocos
+
+<img width="1408" height="768" alt="image" src="https://github.com/user-attachments/assets/ffd177d1-bc87-451a-8dc3-513a50e96490" />
+
 Link do Vídeo: 
 
 https://youtu.be/knCfdsCXC2M
