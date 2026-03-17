@@ -35,7 +35,7 @@ O projeto utiliza algumas funções básicas do FreeRTOS para garantir a integri
 | **GPIO 12** | ALERT_SYSTEM_GOOD | Saída | Indica que o sistema está alimentado e operando. |
 | **GPIO 13** | ALERT_CHEAT_DETECTED | Saída | Ativado quando o sensor detecta um valor acima do padrão. |
 | **GPIO 14** | ALERT_CHEAT_ON | Saída | Indica que a tarefa de injeção de dados está ativa. |
-| **GPIO 25** | START_CHEAT_BUTTON | Entrada | Botão para iniciar a manipulação de dados (Pull-up). |
+| **GPIO 25** | START_CHEAT_BUTTON | Entrada | Botão para iniciar a manipulação de dados (Botão acionado). |
 | **GPIO 27** | FORCE_FAULT_BUTTON | Entrada | Botão para introduzir jitter (atraso) na tarefa de injeção. |
 
 ## Requisitos de Software
