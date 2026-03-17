@@ -28,7 +28,7 @@
 
 #define INJECTION_STANDARD_VALUE 100
 #define INJECTION_HACK_VALUE 120
-#define SENSOR_SAMPLE_TIME 10000
+#define SENSOR_SAMPLE_TIME 8000
 
 #define ALERT_CHEAT_DETECTED_LED GPIO_NUM_13
 #define ALERT_SYSTEM_GOOD GPIO_NUM_12
@@ -36,8 +36,6 @@
 
 #define START_CHEAT_BUTTON GPIO_NUM_25
 #define FORCE_FAULT_BUTTON GPIO_NUM_27
-
-static char task_names[NUM_OF_SPIN_TASKS][configMAX_TASK_NAME_LEN];
 
 static SemaphoreHandle_t sync_spin_task;
 static SemaphoreHandle_t sync_stats_task;
@@ -73,122 +71,6 @@ gptimer_handle_t gptimer_2 = NULL;
  *  - ESP_ERR_INVALID_SIZE  Insufficient array size for uxTaskGetSystemState. Trying increasing ARRAY_SIZE_OFFSET
  *  - ESP_ERR_INVALID_STATE Delay duration too short
  */
-static esp_err_t print_real_time_stats(TickType_t xTicksToWait)
-{
-    TaskStatus_t *start_array = NULL, *end_array = NULL;
-    UBaseType_t start_array_size, end_array_size;
-    configRUN_TIME_COUNTER_TYPE start_run_time, end_run_time;
-    esp_err_t ret;
-
-    //Allocate array to store current task states
-    start_array_size = uxTaskGetNumberOfTasks() + ARRAY_SIZE_OFFSET;
-    start_array = malloc(sizeof(TaskStatus_t) * start_array_size);
-    if (start_array == NULL) {
-        ret = ESP_ERR_NO_MEM;
-        goto exit;
-    }
-    //Get current task states
-    start_array_size = uxTaskGetSystemState(start_array, start_array_size, &start_run_time);
-    if (start_array_size == 0) {
-        ret = ESP_ERR_INVALID_SIZE;
-        goto exit;
-    }
-
-    vTaskDelay(xTicksToWait);
-
-    //Allocate array to store tasks states post delay
-    end_array_size = uxTaskGetNumberOfTasks() + ARRAY_SIZE_OFFSET;
-    end_array = malloc(sizeof(TaskStatus_t) * end_array_size);
-    if (end_array == NULL) {
-        ret = ESP_ERR_NO_MEM;
-        goto exit;
-    }
-    //Get post delay task states
-    end_array_size = uxTaskGetSystemState(end_array, end_array_size, &end_run_time);
-    if (end_array_size == 0) {
-        ret = ESP_ERR_INVALID_SIZE;
-        goto exit;
-    }
-
-    //Calculate total_elapsed_time in units of run time stats clock period.
-    uint32_t total_elapsed_time = (end_run_time - start_run_time);
-    if (total_elapsed_time == 0) {
-        ret = ESP_ERR_INVALID_STATE;
-        goto exit;
-    }
-
-    printf("| Task | Run Time | Percentage\n");
-    //Match each task in start_array to those in the end_array
-    for (int i = 0; i < start_array_size; i++) {
-        int k = -1;
-        for (int j = 0; j < end_array_size; j++) {
-            if (start_array[i].xHandle == end_array[j].xHandle) {
-                k = j;
-                //Mark that task have been matched by overwriting their handles
-                start_array[i].xHandle = NULL;
-                end_array[j].xHandle = NULL;
-                break;
-            }
-        }
-        //Check if matching task found
-        if (k >= 0) {
-            uint32_t task_elapsed_time = end_array[k].ulRunTimeCounter - start_array[i].ulRunTimeCounter;
-            uint32_t percentage_time = (task_elapsed_time * 100UL) / (total_elapsed_time * CONFIG_FREERTOS_NUMBER_OF_CORES);
-            printf("| %s | %"PRIu32" | %"PRIu32"%%\n", start_array[i].pcTaskName, task_elapsed_time, percentage_time);
-        }
-    }
-
-    //Print unmatched tasks
-    for (int i = 0; i < start_array_size; i++) {
-        if (start_array[i].xHandle != NULL) {
-            printf("| %s | Deleted\n", start_array[i].pcTaskName);
-        }
-    }
-    for (int i = 0; i < end_array_size; i++) {
-        if (end_array[i].xHandle != NULL) {
-            printf("| %s | Created\n", end_array[i].pcTaskName);
-        }
-    }
-    ret = ESP_OK;
-
-exit:    //Common return path
-    free(start_array);
-    free(end_array);
-    return ret;
-}
-
-static void spin_task(void *arg)
-{
-    xSemaphoreTake(sync_spin_task, portMAX_DELAY);
-    while (1) {
-        //Consume CPU cycles
-        for (int i = 0; i < SPIN_ITER; i++) {
-            __asm__ __volatile__("NOP");
-        }
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
-}
-
-static void stats_task(void *arg)
-{
-    xSemaphoreTake(sync_stats_task, portMAX_DELAY);
-
-    //Start all the spin tasks
-    for (int i = 0; i < NUM_OF_SPIN_TASKS; i++) {
-        xSemaphoreGive(sync_spin_task);
-    }
-
-    //Print real time stats periodically
-    while (1) {
-        printf("\n\nGetting real time stats over %"PRIu32" ticks\n", STATS_TICKS);
-        if (print_real_time_stats(STATS_TICKS) == ESP_OK) {
-            printf("Real time stats obtained\n");
-        } else {
-            printf("Error getting real time stats\n");
-        }
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
-}
 
 // tags for logging
 static const char *TAG = "SENSOR_TASK";
@@ -231,27 +113,25 @@ static void injection_task(void *arg)
             // set the injection to the standard value
             injection_value = INJECTION_STANDARD_VALUE;
             // semaphore to sync the sensor read
-            if (xSemaphoreTake(xSemaphoreSensorRead, portMAX_DELAY) == pdPASS)
-            {
-                // if the first read after the button was clicked, don't cheat yet.  
-                if (cheat_start_up){
-                    cheat_start_up = false;
-                }
-                // after the second read, we sync with the sensor.
-                else{
-                    injection_value = INJECTION_HACK_VALUE;
-
-                    //xSemaphoreTake(xSyncTimerCheat, 0);
-                    gptimer_set_raw_count(gptimer_2, 0);
-                    gptimer_start(gptimer_2);
-
-                    if (xSemaphoreTake(xSyncTimerCheat, portMAX_DELAY) == pdTRUE ){
-                        gptimer_stop(gptimer_2);
-                    }
-                    // vTaskDelay(pdMS_TO_TICKS(30-1));
-                }
-                ESP_LOGW(TAG2, "injection hack:  %d", injection_value);
+            xSemaphoreTake(xSemaphoreSensorRead, portMAX_DELAY);
+            // if the first read after the button was clicked, don't cheat yet.  
+            if (cheat_start_up){
+                cheat_start_up = false;
             }
+            // after the second read, we sync with the sensor.
+            else{
+                injection_value = INJECTION_HACK_VALUE;
+
+                //xSemaphoreTake(xSyncTimerCheat, 0);
+                gptimer_set_raw_count(gptimer_2, 0);
+                gptimer_start(gptimer_2);
+
+                xSemaphoreTake(xSyncTimerCheat, portMAX_DELAY);
+                gptimer_stop(gptimer_2);
+                
+                // vTaskDelay(pdMS_TO_TICKS(30-1));
+            }
+            //ESP_LOGW(TAG2, "injection hack:  %d", injection_value);
         }
     }
 }
@@ -263,12 +143,14 @@ static void sensor_task(void *arg)
     {
         if (xSemaphoreTake(xSyncTimerSensorRead, portMAX_DELAY) == pdTRUE)
         {
-            ESP_LOGW(TAG, "sensor value:  %d", injection_value);
             // set the LED io to high voltage if cheat detected and good to low
+            //ESP_LOGW(TAG, "sensor value:  %d", injection_value);
             if (injection_value > INJECTION_STANDARD_VALUE)
             {
+                //ESP_LOGW(TAG, "start:  %d", cheat_start_up);
                 gpio_set_level(ALERT_CHEAT_DETECTED_LED, 1);
                 gpio_set_level(ALERT_SYSTEM_GOOD, 0);
+                //return;
             }
             // give to cheat task and set the delay sample time
             xSemaphoreGive(xSemaphoreSensorRead);
@@ -381,7 +263,7 @@ void app_main(void)
     gptimer_register_event_callbacks(gptimer_2, &cbs_2, NULL);
 
     gptimer_alarm_config_t alarm_config_2 = {
-        .alarm_count = SENSOR_SAMPLE_TIME-500,
+        .alarm_count = SENSOR_SAMPLE_TIME-1000,
         .reload_count = 0,
         .flags.auto_reload_on_alarm = false
     };
@@ -396,8 +278,8 @@ void app_main(void)
     sync_spin_task = xSemaphoreCreateCounting(NUM_OF_SPIN_TASKS, 0);
     sync_stats_task = xSemaphoreCreateBinary();
     
-    xTaskCreatePinnedToCore(sensor_task, "sensor_task", 4096, NULL, 1, NULL, 0);
-    xTaskCreatePinnedToCore(injection_task, "injection_task", 4096, NULL, 1, NULL, 1);
+    xTaskCreatePinnedToCore(sensor_task, "sensor_task", 4096, NULL, 5, NULL, 0);
+    xTaskCreatePinnedToCore(injection_task, "injection_task", 4096, NULL, 5, NULL, 1);
 
     //xTaskCreatePinnedToCore(stats_task, "stats", 4096, NULL, STATS_TASK_PRIO, NULL, tskNO_AFFINITY);
     //xSemaphoreGive(sync_stats_task);
