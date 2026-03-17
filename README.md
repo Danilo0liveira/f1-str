@@ -18,7 +18,7 @@ Através da função `print_real_time_stats`, o sistema monitora o tempo de exec
 
 ### 2. Sincronização e Comunicação
 
-O projeto utiliza primitivas do FreeRTOS para garantir a integridade dos dados:
+O projeto utiliza algumas funções básicas do FreeRTOS para garantir a integridade dos dados:
 
 * **Semáforos Binários:** Utilizados para sinalizar eventos de botões e sincronizar o início da injeção de dados.
 * **Semáforos de Contagem:** Utilizados para gerenciar a inicialização sincronizada de múltiplas tarefas de processamento (`spin_tasks`).
