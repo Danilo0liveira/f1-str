@@ -17,7 +17,7 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "driver/gpio.h"
-
+#include "driver/gptimer.h"
 
 #define NUM_OF_SPIN_TASKS   6
 #define SPIN_ITER           500000  //Actual CPU cycles used will depend on compiler optimization
@@ -28,7 +28,7 @@
 
 #define INJECTION_STANDARD_VALUE 100
 #define INJECTION_HACK_VALUE 120
-#define SENSOR_SAMPLE_TIME 30
+#define SENSOR_SAMPLE_TIME 10000
 
 #define ALERT_CHEAT_DETECTED_LED GPIO_NUM_13
 #define ALERT_SYSTEM_GOOD GPIO_NUM_12
@@ -43,6 +43,12 @@ static SemaphoreHandle_t sync_spin_task;
 static SemaphoreHandle_t sync_stats_task;
 static SemaphoreHandle_t xSemaphoreSensorRead;
 static SemaphoreHandle_t xStartButtonPressed;
+static SemaphoreHandle_t xSyncTimerSensorRead;
+static SemaphoreHandle_t xSyncTimerCheat;
+
+
+gptimer_handle_t gptimer_2 = NULL;
+
 
 /**
  * @brief   Function to print the CPU usage of tasks over a given duration.
@@ -193,6 +199,26 @@ int injection_value = INJECTION_STANDARD_VALUE;
 int jitter = 0;
 bool cheat_start_up = true;
 
+static IRAM_ATTR bool timer_isr_callback(
+    gptimer_handle_t timer,
+    const gptimer_alarm_event_data_t *edata,
+    void *user_ctx)
+{
+    BaseType_t high_task_awoken = pdFALSE;
+    xSemaphoreGiveFromISR(xSyncTimerSensorRead, &high_task_awoken);
+    return (high_task_awoken == pdTRUE);
+}
+
+static IRAM_ATTR bool timer_isr_callback_2(
+    gptimer_handle_t timer,
+    const gptimer_alarm_event_data_t *edata,
+    void *user_ctx)
+{
+    BaseType_t high_task_awoken = pdFALSE;
+    xSemaphoreGiveFromISR(xSyncTimerCheat, &high_task_awoken);
+    return (high_task_awoken == pdTRUE);
+}
+
 static void injection_task(void *arg)
 {
     // injection task waiting to the START_CHEAT_BUTTON
@@ -214,7 +240,15 @@ static void injection_task(void *arg)
                 // after the second read, we sync with the sensor.
                 else{
                     injection_value = INJECTION_HACK_VALUE;
-                    vTaskDelay(pdMS_TO_TICKS(SENSOR_SAMPLE_TIME-1+jitter));
+
+                    //xSemaphoreTake(xSyncTimerCheat, 0);
+                    gptimer_set_raw_count(gptimer_2, 0);
+                    gptimer_start(gptimer_2);
+
+                    if (xSemaphoreTake(xSyncTimerCheat, portMAX_DELAY) == pdTRUE ){
+                        gptimer_stop(gptimer_2);
+                    }
+                    // vTaskDelay(pdMS_TO_TICKS(30-1));
                 }
                 ESP_LOGW(TAG2, "injection hack:  %d", injection_value);
             }
@@ -227,23 +261,29 @@ static void sensor_task(void *arg)
     // running indefinitely 
     while(true)
     {
-        ESP_LOGW(TAG, "sensor value:  %d", injection_value);
-
-        // set the LED io to high voltage if cheat detected
-        if (injection_value > INJECTION_STANDARD_VALUE)
-            gpio_set_level(ALERT_CHEAT_DETECTED_LED, 1);
-
-        // give to cheat task and set the delay sample time
-        xSemaphoreGive(xSemaphoreSensorRead);
-        vTaskDelay(pdMS_TO_TICKS(SENSOR_SAMPLE_TIME));
+        if (xSemaphoreTake(xSyncTimerSensorRead, portMAX_DELAY) == pdTRUE)
+        {
+            ESP_LOGW(TAG, "sensor value:  %d", injection_value);
+            // set the LED io to high voltage if cheat detected and good to low
+            if (injection_value > INJECTION_STANDARD_VALUE)
+            {
+                gpio_set_level(ALERT_CHEAT_DETECTED_LED, 1);
+                gpio_set_level(ALERT_SYSTEM_GOOD, 0);
+            }
+            // give to cheat task and set the delay sample time
+            xSemaphoreGive(xSemaphoreSensorRead);
+            //vTaskDelay(pdMS_TO_TICKS(SENSOR_SAMPLE_TIME));
+        }
     }
 }
 
 // function to introduce the cheat task
-void isr_callback_start_cheat_pressed_button(void *arg)
+static bool IRAM_ATTR isr_callback_start_cheat_pressed_button(void *arg)
 {
+    BaseType_t high_task_awoken = pdFALSE;
     // give to sempahore of cheat task
-    xSemaphoreGive(xStartButtonPressed);
+    xSemaphoreGiveFromISR(xStartButtonPressed, &high_task_awoken);
+    return (high_task_awoken == pdTRUE);
 }
 
 // function to introduce jitter to the cheat task
@@ -251,6 +291,7 @@ void isr_callback_add_jitter_pressed_button(void *arg)
 {
     jitter=10;
 }
+
 
 void app_main(void)
 {
@@ -294,10 +335,59 @@ void app_main(void)
     // setup the ALERT_SYSTEM_GOOD LED to high voltage
     gpio_set_level(ALERT_SYSTEM_GOOD, 1);
     
-    // semaphore to sync the read action of the sensor
+    // semaphore to sync the read action of the sensor with the cheat task
     xSemaphoreSensorRead = xSemaphoreCreateBinary();
     // semaphore to handle the start cheating interrupting
     xStartButtonPressed = xSemaphoreCreateBinary();
+    // semaphore to handle the timer sync
+    xSyncTimerSensorRead = xSemaphoreCreateBinary();
+    xSyncTimerCheat = xSemaphoreCreateBinary();
+
+    // timer configuration and the handler
+    gptimer_handle_t gptimer = NULL;
+    gptimer_config_t timer_config = {
+        .clk_src = GPTIMER_CLK_SRC_DEFAULT,
+        .direction = GPTIMER_COUNT_UP,
+        .resolution_hz = 1000000
+    };
+
+    gptimer_new_timer(&timer_config, &gptimer);
+
+    // registering the ISR callback  
+    gptimer_event_callbacks_t cbs = {
+        .on_alarm = timer_isr_callback
+    };
+    gptimer_register_event_callbacks(gptimer, &cbs, NULL);
+
+    gptimer_alarm_config_t alarm_config = {
+        .alarm_count = SENSOR_SAMPLE_TIME,
+        .reload_count = 0,
+        .flags.auto_reload_on_alarm = true
+    };
+
+    gptimer_set_alarm_action(gptimer, &alarm_config);
+    gptimer_enable(gptimer);
+    gptimer_start(gptimer);
+
+
+    // configure the second timer
+
+    gptimer_new_timer(&timer_config, &gptimer_2);
+
+    // registering the ISR callback  
+    gptimer_event_callbacks_t cbs_2 = {
+        .on_alarm = timer_isr_callback_2
+    };
+    gptimer_register_event_callbacks(gptimer_2, &cbs_2, NULL);
+
+    gptimer_alarm_config_t alarm_config_2 = {
+        .alarm_count = SENSOR_SAMPLE_TIME-500,
+        .reload_count = 0,
+        .flags.auto_reload_on_alarm = false
+    };
+
+    gptimer_set_alarm_action(gptimer_2, &alarm_config_2);
+    gptimer_enable(gptimer_2);
 
     //Allow other core to finish initialization
     vTaskDelay(pdMS_TO_TICKS(100));
