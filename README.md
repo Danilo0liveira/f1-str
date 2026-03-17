@@ -1,7 +1,5 @@
 # Projeto STR
 
-# FreeRTOS Real Time Stats e Monitoramento de Sensores
-
 Este projeto demonstra a implementação de um sistema multitarefa utilizando FreeRTOS no microcontrolador ESP32. O código foca na coleta de estatísticas de uso de CPU, gerenciamento de periféricos via interrupções (ISR) e sincronização de tarefas através de semáforos.
 
 ## Descrição do Projeto
