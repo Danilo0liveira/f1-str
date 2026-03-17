@@ -57,7 +57,7 @@ O projeto utiliza algumas funções básicas do FreeRTOS para garantir a integri
 
 ---
 
-## Digrama de blocos
+## Digrama de blocos (gerado por IA)
 
 <img width="1408" height="768" alt="image" src="https://github.com/user-attachments/assets/ffd177d1-bc87-451a-8dc3-513a50e96490" />
 
