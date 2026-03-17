@@ -129,7 +129,7 @@ static void injection_task(void *arg)
                 xSemaphoreTake(xSyncTimerCheat, portMAX_DELAY);
                 gptimer_stop(gptimer_2);
                 
-                // vTaskDelay(pdMS_TO_TICKS(30-1));
+                vTaskDelay(pdMS_TO_TICKS(jitter));
             }
             //ESP_LOGW(TAG2, "injection hack:  %d", injection_value);
         }
@@ -171,7 +171,7 @@ static bool IRAM_ATTR isr_callback_start_cheat_pressed_button(void *arg)
 // function to introduce jitter to the cheat task
 void isr_callback_add_jitter_pressed_button(void *arg)
 {
-    jitter=10;
+    jitter=5000;
 }
 
 
