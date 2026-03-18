@@ -2,10 +2,6 @@
 
 Este projeto demonstra a utilização do FreeRTOS no ESP32 para gerenciar tarefas concorrentes, manipulação de interrupções (ISR) e sincronização via semáforos. O sistema simula a leitura de um sensor e uma tarefa de "hack" que tenta alterar os valores lidos pelo sistema principal.
 
-Com certeza. Este código simula um sistema de monitoramento de sensores onde uma "trapaça" (hack de injeção) pode ser ativada via hardware, demonstrando conceitos de sincronização de tarefas e interrupções no **FreeRTOS** com ESP32.
-
-Aqui está o arquivo `README.md` estruturado:
-
 ---
 
 # Exemplo de Monitoramento de Sensor e Injeção de Dados (FreeRTOS)
