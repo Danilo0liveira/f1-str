@@ -8,7 +8,7 @@ Este projeto demonstra a utilização do FreeRTOS no ESP32 para gerenciar tarefa
 
 Este projeto demonstra a utilização do FreeRTOS no ESP32 para gerenciar tarefas concorrentes, manipulação de interrupções (ISR) e sincronização via semáforos. O sistema simula a leitura de um sensor e uma tarefa de "hack" que tenta alterar os valores lidos pelo sistema principal.
 
-## 🛠 Lógica de Funcionamento
+## Lógica de Funcionamento
 
 O sistema opera com duas frentes principais:
 1.  **Monitoramento Real:** Uma tarefa lê continuamente o valor de uma variável (`injection_value`). Se o valor ultrapassar o padrão, um alerta visual é acionado.
@@ -19,7 +19,7 @@ Para que a trapaça funcione, a tarefa de injeção precisa saber exatamente qua
 
 ---
 
-## 📝 Descrição das Funções
+## Descrição das Funções
 
 ### 1. `sensor_task`
 É a tarefa principal de monitoramento.
@@ -48,7 +48,7 @@ Ponto de entrada do programa.
 
 ---
 
-## 📌 Pinagem Utilizada
+## Pinagem Utilizada
 
 | Componente | Pino GPIO | Função |
 | :--- | :--- | :--- |
@@ -57,12 +57,6 @@ Ponto de entrada do programa.
 | **LED Trapaça Ativa** | 14 | Indica que a tarefa de hack está rodando |
 | **Botão Iniciar Hack** | 25 | Gatilho para iniciar a `injection_task` |
 | **Botão Forçar Jitter** | 27 | Introduz instabilidade no tempo do hack |
-
----
-
-Deseja que eu explique mais detalhadamente como o semáforo binário impede que a `injection_task` consuma CPU desnecessariamente enquanto o botão não é pressionado?
-
----
 
 ## Digrama de blocos (gerado por IA)
 
