@@ -2,58 +2,69 @@
 
 Este projeto demonstra a utilização do FreeRTOS no ESP32 para gerenciar tarefas concorrentes, manipulação de interrupções (ISR) e sincronização via semáforos. O sistema simula a leitura de um sensor e uma tarefa de "hack" que tenta alterar os valores lidos pelo sistema principal.
 
-## Descrição do Projeto
+Com certeza. Este código simula um sistema de monitoramento de sensores onde uma "trapaça" (hack de injeção) pode ser ativada via hardware, demonstrando conceitos de sincronização de tarefas e interrupções no **FreeRTOS** com ESP32.
 
-O software simula um sistema de monitoramento de sensor onde os dados podem ser manipulados externamente (injeção de dados). Ele utiliza o modelo de processamento distribuído, dividindo tarefas entre os dois núcleos do ESP32 (Core 0 e Core 1).
+Aqui está o arquivo `README.md` estruturado:
 
-## Funcionalidades Técnicas
+---
 
-### 1. Estatísticas de Tempo Real
+# Exemplo de Monitoramento de Sensor e Injeção de Dados (FreeRTOS)
 
-Através da função `print_real_time_stats`, o sistema monitora o tempo de execução de cada tarefa.
+Este projeto demonstra a utilização do FreeRTOS no ESP32 para gerenciar tarefas concorrentes, manipulação de interrupções (ISR) e sincronização via semáforos. O sistema simula a leitura de um sensor e uma tarefa de "hack" que tenta alterar os valores lidos pelo sistema principal.
 
-* Captura o estado do sistema antes e depois de um período de atraso.
-* Calcula a porcentagem de utilização de CPU por tarefa.
-* Identifica tarefas criadas ou deletadas dinamicamente.
+## 🛠 Lógica de Funcionamento
 
-### 2. Sincronização e Comunicação
+O sistema opera com duas frentes principais:
+1.  **Monitoramento Real:** Uma tarefa lê continuamente o valor de uma variável (`injection_value`). Se o valor ultrapassar o padrão, um alerta visual é acionado.
+2.  **Intervenção (Hack):** Através de botões físicos, o usuário pode ativar uma tarefa que "sequestra" o valor do sensor, injetando um valor artificial (`INJECTION_HACK_VALUE`) exatamente no momento em que a leitura ocorre.
 
-O projeto utiliza algumas funções básicas do FreeRTOS para garantir a integridade dos dados:
+### Fluxo de Sincronização
+Para que a trapaça funcione, a tarefa de injeção precisa saber exatamente quando o sensor vai realizar a leitura. Isso é feito através de um **Semáforo Binário** (`xSemaphoreSensorRead`), que atua como um sinal de sincronismo entre as duas tarefas.
 
-* **Semáforos Binários:** Utilizados para sinalizar eventos de botões e sincronizar o início da injeção de dados.
-* **Semáforos de Contagem:** Utilizados para gerenciar a inicialização sincronizada de múltiplas tarefas de processamento (`spin_tasks`).
+---
 
-### 3. Gerenciamento de Tarefas (Task Mapping)
+## 📝 Descrição das Funções
 
-* **sensor_task (Core 0):** Monitora continuamente o valor da variável de injeção e aciona alertas visuais.
-* **injection_task (Core 1):** Aguarda o disparo de uma interrupção de hardware para iniciar a manipulação dos valores do sensor.
+### 1. `sensor_task`
+É a tarefa principal de monitoramento.
+* **O que faz:** Exibe o valor atual da injeção no log e verifica se ele excede o limite normal (`100`).
+* **Ação:** Se detectar um valor alto, acende o LED `ALERT_CHEAT_DETECTED_LED`.
+* **Sincronismo:** Ela libera o semáforo `xSemaphoreSensorRead` para avisar outras tarefas que uma leitura acabou de acontecer e entra em um delay de 30ms.
 
-## Mapeamento de Hardware (GPIO)
+### 2. `injection_task`
+É a tarefa responsável por manipular os dados.
+* **O que faz:** Permanece bloqueada até que o botão de "Cheat" seja pressionado.
+* **Lógica de "Hack":** Após o primeiro ciclo de ativação, ela tenta sincronizar com a `sensor_task`. Ela espera o sinal do sensor, altera o valor para o nível de "hack" e aguarda um tempo ligeiramente menor que o tempo de amostragem do sensor para garantir que o valor esteja alterado na próxima leitura.
 
-| Pino | Função | Tipo | Descrição |
-| --- | --- | --- | --- |
-| **GPIO 12** | ALERT_SYSTEM_GOOD | Saída | Indica que o sistema está alimentado e operando. |
-| **GPIO 13** | ALERT_CHEAT_DETECTED | Saída | Ativado quando o sensor detecta um valor acima do padrão. |
-| **GPIO 14** | ALERT_CHEAT_ON | Saída | Indica que a tarefa de injeção de dados está ativa. |
-| **GPIO 25** | START_CHEAT_BUTTON | Entrada | Botão para iniciar a manipulação de dados (Botão acionado). |
-| **GPIO 27** | FORCE_FAULT_BUTTON | Entrada | Botão para introduzir jitter (atraso) na tarefa de injeção. |
+### 3. `isr_callback_start_cheat_pressed_button`
+Rotina de Interrupção (ISR) para o botão de início.
+* **O que faz:** Libera o semáforo `xStartButtonPressed`, permitindo que a tarefa de injeção saia do estado de bloqueio e comece a rodar.
 
-## Requisitos de Software
+### 4. `isr_callback_add_jitter_pressed_button`
+Rotina de Interrupção para o botão de falha (Force Fault).
+* **O que faz:** Introduz um "jitter" (atraso intencional) de 10ms na lógica de tempo da injeção, o que pode causar dessincronização entre o hack e o sensor.
 
-* **ESP-IDF:** Framework oficial da Espressif.
-* **Configuração do SDK:** É necessário habilitar as seguintes opções no `menuconfig`:
-* `CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS`
-* `CONFIG_FREERTOS_USE_STATS_FORMATTING_FUNCTIONS`
+### 5. `app_main`
+Ponto de entrada do programa.
+* **Configuração:** Inicializa os pinos de saída (LEDs) e entrada (Botões).
+* **Interrupções:** Configura as interrupções nos pinos dos botões para a borda de descida (`NEGEDGE`).
+* **Criação de Tarefas:** Cria as tarefas `sensor_task` e `injection_task`, fixando-as em núcleos diferentes do ESP32 para otimizar o processamento paralelo.
 
+---
 
+## 📌 Pinagem Utilizada
 
-## Como o Sistema Opera
+| Componente | Pino GPIO | Função |
+| :--- | :--- | :--- |
+| **LED Alerta de Trapaça** | 13 | Aceso quando o valor lido é > 100 |
+| **LED Sistema OK** | 12 | Indica que o sistema está ligado |
+| **LED Trapaça Ativa** | 14 | Indica que a tarefa de hack está rodando |
+| **Botão Iniciar Hack** | 25 | Gatilho para iniciar a `injection_task` |
+| **Botão Forçar Jitter** | 27 | Introduz instabilidade no tempo do hack |
 
-1. Ao iniciar, o sistema configura os pinos e instala o serviço de interrupção (ISR).
-2. A `sensor_task` monitora a variável `injection_value` (Padrão: 100).
-3. Ao pressionar o botão no GPIO 25, a interrupção libera o semáforo que ativa a `injection_task`.
-4. A `injection_task` passa a sobrescrever o valor do sensor para 120.
-5. Se o botão no GPIO 27 for pressionado, um atraso adicional (`jitter`) é somado à tarefa de injeção, simulando uma falha de temporização.
+---
+
+Deseja que eu explique mais detalhadamente como o semáforo binário impede que a `injection_task` consuma CPU desnecessariamente enquanto o botão não é pressionado?
 
 ---
 
