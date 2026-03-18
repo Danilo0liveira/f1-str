@@ -1,6 +1,6 @@
 # Projeto STR
 
-Este projeto demonstra a implementação de um sistema multitarefa utilizando FreeRTOS no microcontrolador ESP32. O código foca na coleta de estatísticas de uso de CPU, gerenciamento de periféricos via interrupções (ISR) e sincronização de tarefas através de semáforos.
+Este projeto demonstra a utilização do FreeRTOS no ESP32 para gerenciar tarefas concorrentes, manipulação de interrupções (ISR) e sincronização via semáforos. O sistema simula a leitura de um sensor e uma tarefa de "hack" que tenta alterar os valores lidos pelo sistema principal.
 
 ## Descrição do Projeto
 
